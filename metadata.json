@@ -1,0 +1,6 @@
+{
+  "name": "Taiwan Design Expo | Curated Narrative Journey",
+  "description": "Personalized exhibition narrative curation, cultural storytelling, audio interpretation, and memorable souvenir takeaways for the Taiwan Design Expo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
