@@ -5,7 +5,8 @@ import {
   PaceId, 
   Language, 
   ExhibitMode, 
-  ExhibitItem 
+  ExhibitItem,
+  UserExpressionsMap 
 } from './types/expo';
 import { generateCuratedJourney, ALL_AREA1_EXHIBITS } from './data/exhibitionData';
 import { Header } from './components/Header';
@@ -29,6 +30,58 @@ export default function App() {
   const [pollAnswers, setPollAnswers] = useState<Record<string, string>>({
     exhibit_a1: 'water',
   });
+
+  // User-written expressions for each area/part (A1, A2, etc.)
+  const [userExpressions, setUserExpressions] = useState<UserExpressionsMap>(() => {
+    try {
+      const saved = localStorage.getItem('expo2026_user_expressions');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      exhibit_a1: {
+        text: '初入 A1「桃園流」，仰望大跨距原木弧線天棚與自然光斑，真正體會到千塘水文與國際航線在此匯流定錨的流動生命力！',
+        tag: '💭 心得感悟',
+        updatedAt: Date.now() - 3600000,
+      }
+    };
+  });
+
+  const handleSaveExpression = (exhibitId: string, text: string, tag?: string) => {
+    setUserExpressions(prev => {
+      const updated: UserExpressionsMap = {
+        ...prev,
+        [exhibitId]: {
+          text,
+          tag,
+          updatedAt: Date.now(),
+        }
+      };
+      try {
+        localStorage.setItem('expo2026_user_expressions', JSON.stringify(updated));
+      } catch {
+        // quota
+      }
+      return updated;
+    });
+    handleMarkVisited(exhibitId);
+  };
+
+  const handleDeleteExpression = (exhibitId: string) => {
+    setUserExpressions(prev => {
+      const copy = { ...prev };
+      delete copy[exhibitId];
+      try {
+        localStorage.setItem('expo2026_user_expressions', JSON.stringify(copy));
+      } catch {
+        // quota
+      }
+      return copy;
+    });
+  };
 
   // Modal & Audio player state
   const [selectedExhibitModal, setSelectedExhibitModal] = useState<ExhibitItem | null>(null);
@@ -137,6 +190,7 @@ export default function App() {
             activeAudioExhibitId={activeAudioExhibitId}
             isPlayingAudio={isPlayingAudio}
             onToggleAudio={handleToggleAudio}
+            userExpressions={userExpressions}
           />
         )}
 
@@ -146,6 +200,10 @@ export default function App() {
             language={language}
             savedInsightIds={savedInsightIds}
             visitedExhibitIds={visitedExhibitIds}
+            userExpressions={userExpressions}
+            onSaveExpression={handleSaveExpression}
+            onDeleteExpression={handleDeleteExpression}
+            onToggleVisited={handleToggleVisited}
             onBackToDashboard={() => {
               setCurrentScreen('dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -172,6 +230,9 @@ export default function App() {
           onVotePoll={handleVotePoll}
           isPlayingAudio={activeAudioExhibitId === selectedExhibitModal.id && isPlayingAudio}
           onToggleAudio={handleToggleAudio}
+          expression={userExpressions[selectedExhibitModal.id]}
+          onSaveExpression={handleSaveExpression}
+          onDeleteExpression={handleDeleteExpression}
         />
       )}
 

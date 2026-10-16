@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { CuratedJourney, Language, PersonaId } from '../types/expo';
+import { CuratedJourney, Language, PersonaId, UserExpressionsMap } from '../types/expo';
 import { PERSONAS, FLOWMOMO_AVATARS } from '../data/exhibitionData';
 import { 
   Sparkles, 
@@ -22,11 +22,21 @@ import {
   MapPin,
   ExternalLink,
   MessageCircleHeart,
-  QrCode
+  QrCode,
+  PenLine,
+  Filter,
+  FileText,
+  CheckCheck,
+  MessageSquare
 } from 'lucide-react';
 
-// Pre-bundled high quality Expo imagery
+// Pre-bundled high quality Expo imagery & IKEA Mascot
 import flowmomoImg from '../assets/images/flowmomo_character_1791790478962.jpg';
+import ikeaMomoImg from '../assets/images/ikea_momo_mascot_1792155183359.jpg';
+import { IkeaMomoCharacter } from './IkeaMomoCharacter';
+import { AreaExpressionItem } from './AreaExpressionItem';
+import { SoundscapePlayerCard } from './SoundscapePlayerCard';
+import { expoSoundscape } from '../utils/expoSoundscapeEngine';
 import heroPavilionImg from '../assets/images/expo_hero_pavilion_1791790411519.jpg';
 import interactiveLightImg from '../assets/images/expo_interactive_light_1791790446733.jpg';
 import foodIdentityImg from '../assets/images/expo_food_identity_1791790428298.jpg';
@@ -39,6 +49,10 @@ interface PostVisitScreenProps {
   language: Language;
   savedInsightIds: string[];
   visitedExhibitIds?: string[];
+  userExpressions?: UserExpressionsMap;
+  onSaveExpression?: (exhibitId: string, text: string, tag?: string) => void;
+  onDeleteExpression?: (exhibitId: string) => void;
+  onToggleVisited?: (exhibitId: string) => void;
   onBackToDashboard: () => void;
   onRestartJourney: () => void;
 }
@@ -50,17 +64,58 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
   language,
   savedInsightIds,
   visitedExhibitIds = [],
+  userExpressions,
+  onSaveExpression,
+  onDeleteExpression,
+  onToggleVisited,
   onBackToDashboard,
   onRestartJourney,
 }) => {
   const [activeTab, setActiveTab] = useState<SouvenirTab>('card');
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyAllToast, setCopyAllToast] = useState(false);
+  const [stopsFilter, setStopsFilter] = useState<'all' | 'expressed' | 'visited'>('all');
+  const [internalExpressions, setInternalExpressions] = useState<UserExpressionsMap>(() => {
+    if (userExpressions) return userExpressions;
+    try {
+      const saved = localStorage.getItem('expo2026_user_expressions');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  const activeExpressions = userExpressions || internalExpressions;
+
+  const handleSaveExp = (exhibitId: string, text: string, tag?: string) => {
+    if (onSaveExpression) {
+      onSaveExpression(exhibitId, text, tag);
+    } else {
+      setInternalExpressions(prev => {
+        const next = { ...prev, [exhibitId]: { text, tag, updatedAt: Date.now() } };
+        try { localStorage.setItem('expo2026_user_expressions', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    }
+  };
+
+  const handleDeleteExp = (exhibitId: string) => {
+    if (onDeleteExpression) {
+      onDeleteExpression(exhibitId);
+    } else {
+      setInternalExpressions(prev => {
+        const next = { ...prev };
+        delete next[exhibitId];
+        try { localStorage.setItem('expo2026_user_expressions', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    }
+  };
+
+  // Expressed count for the curated route
+  const expressedCount = journey.exhibits.filter(ex => Boolean(activeExpressions[ex.id]?.text?.trim())).length;
   const [characterMood, setCharacterMood] = useState<'inspired' | 'tectonic' | 'playful' | 'rooted' | 'global'>('inspired');
-  const [isPlayingAmbience, setIsPlayingAmbience] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const oscillatorNodesRef = useRef<OscillatorNode[]>([]);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const [mascotVisualMode, setMascotVisualMode] = useState<'vector' | 'manual'>('vector');
 
   const persona = PERSONAS.find(p => p.id === journey.personaId) || PERSONAS[0];
   const avatarInfo = FLOWMOMO_AVATARS[journey.personaId] || FLOWMOMO_AVATARS.first_timer;
@@ -70,124 +125,43 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
   const unlockedExhibits = journey.exhibits.filter(ex => savedInsightIds.includes(ex.id) || visitedExhibitIds.includes(ex.id));
   const effectiveExhibits = unlockedExhibits.length > 0 ? unlockedExhibits : journey.exhibits.slice(0, 3);
 
-  // Play synthesized melodic sparkle sound on character click
+  // Play synthesized crystal chime sound on character click
   const playMomoChime = () => {
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const freqs = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-      freqs.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
-        gain.gain.setValueAtTime(0.001, ctx.currentTime + idx * 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + idx * 0.08 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + idx * 0.08 + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + idx * 0.08);
-        osc.stop(ctx.currentTime + idx * 0.08 + 0.6);
-      });
-    } catch {
-      // Audio context restricted or muted
-    }
+      expoSoundscape.triggerChime();
+    } catch {}
   };
 
-  // Ambient soundscape synthesis using Web Audio API
-  const toggleAmbientSoundscape = () => {
-    try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-
-      if (isPlayingAmbience) {
-        // Stop
-        oscillatorNodesRef.current.forEach(osc => {
-          try { osc.stop(); } catch {}
-        });
-        oscillatorNodesRef.current = [];
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
-        }
-        audioContextRef.current = null;
-        setIsPlayingAmbience(false);
-      } else {
-        // Start peaceful water / expo chime ambience
-        const ctx = new AudioCtx();
-        audioContextRef.current = ctx;
-        const mainGain = ctx.createGain();
-        mainGain.gain.setValueAtTime(0.08, ctx.currentTime);
-        mainGain.connect(ctx.destination);
-        gainNodeRef.current = mainGain;
-
-        const chordFreqs = [220, 277.18, 329.63, 440, 554.37];
-        const newOscs: OscillatorNode[] = [];
-
-        chordFreqs.forEach((f, i) => {
-          const osc = ctx.createOscillator();
-          const pannerGain = ctx.createGain();
-          osc.type = i % 2 === 0 ? 'sine' : 'triangle';
-          osc.frequency.setValueAtTime(f, ctx.currentTime);
-
-          // Subtle LFO modulation
-          const lfo = ctx.createOscillator();
-          const lfoGain = ctx.createGain();
-          lfo.frequency.setValueAtTime(0.2 + i * 0.1, ctx.currentTime);
-          lfoGain.gain.setValueAtTime(1.5, ctx.currentTime);
-          lfo.connect(osc.frequency);
-          lfo.start();
-
-          pannerGain.gain.setValueAtTime(0.12 / chordFreqs.length, ctx.currentTime);
-          osc.connect(pannerGain);
-          pannerGain.connect(mainGain);
-          osc.start();
-          newOscs.push(osc);
-        });
-
-        oscillatorNodesRef.current = newOscs;
-        setIsPlayingAmbience(true);
-      }
-    } catch {
-      setIsPlayingAmbience(false);
-    }
-  };
-
-  // Clean up sound on unmount
+  // Clean up soundscape on unmount
   useEffect(() => {
     return () => {
       try {
-        oscillatorNodesRef.current.forEach(o => {
-          try { o.stop(); } catch {}
-        });
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
-        }
+        expoSoundscape.stop();
       } catch {}
     };
   }, []);
 
-  // Character quotes by mood
+  // Character quotes by mood (IKEA Manual Edition)
   const moodDialogues = {
     inspired: {
-      zh: '「嗨！我是桃 Momo！✨ 謝謝你今天與我在青埔展區漫步。我為你整理了這次專屬的觀展記憶卡與文化靈感護照，快來探索你的專屬設計師性格吧！」',
-      en: '“Hi! I’m Tao Momo! ✨ Thank you for strolling through Area 1 with me today. Here is your personalized souvenir card and cultural radar—discover your unique designer archetype!”'
+      zh: '「Hej！我是 MÖMÖ 桃桃！✨ 像 IKEA 組裝說明書一樣，我們用最純粹的極簡線條與好奇心，把青埔展區的靈感零件一步步拼裝進生活！來看看你的專屬觀展護照吧！」',
+      en: '“Hej! I’m MÖMÖ! ✨ Just like an IKEA instruction manual, we assemble ideas piece by piece with clean lines and curiosity. Explore your personalized exhibition passport!”'
     },
     tectonic: {
-      zh: '「在 A1 的大跨距木構與 A6 循環材料中，我感受到了造物者的嚴謹與溫度！你所記錄的每一個構造細節，都是未來城市的基石。」',
-      en: '“Between A1 timber arches and A6 circular material loops, I felt the rigor and warmth of makers! Every structural insight you recorded builds tomorrow’s city.”'
+      zh: '「六角板手準備好了嗎？🔧 在 A1 大跨距木構與 A6 循環材料中，每顆螺栓與卡榫都是嚴謹造物美學。不需任何多餘膠水，結構本身就是最好的設計！」',
+      en: '“Got your hex key ready? 🔧 From A1 timber joints to A6 circular loops, every bolt and mortise is honest craft. No glue needed—pure structure!”'
     },
     playful: {
-      zh: '「走過 A3 彩光天橋時，光影在地面跳舞的樣子太美了！希望這份數位紀念卡能為你的生活注入滿滿的色彩與童心！」',
-      en: '“Walking across A3 Rainbow Bridge as light danced across the walkway was pure magic! May this souvenir infuse your life with playful color!”'
+      zh: '「組立說明書第 3 步：把日常煩惱收進平整包裝盒，拿著彩色氣球跨過 A3 彩光天橋！保持簡單、保持微笑，就是最棒的設計哲學。」',
+      en: '“Manual Step 3: Put worries in a flat-pack box and stroll across A3 Rainbow Bridge! Keep it simple, keep smiling—pure joyful design!”'
     },
     rooted: {
-      zh: '「桃園不只是機場大門，更是千座埤塘滋養的故土。在 A10 的水文與 A7 的市集中，我們一起聽見了這座城市最深的心跳。」',
-      en: '“Taoyuan is not just airport runways, but a home nourished by a thousand ponds. In A10’s waters and A7’s market, we heard the city’s deepest heartbeat.”'
+      zh: '「桃園的千塘水脈就像家裡最溫潤的原木餐桌，經得起歲月發酵。在 A10 水之道與 A7 市集裡，我們聽見了故土最厚實純粹的匠人手溫。」',
+      en: '“Taoyuan’s water ponds are like a seasoned solid pine dining table—timeless and warm. In A10 and A7, we celebrate honest local craftsmanship.”'
     },
     global: {
-      zh: '「在 A13 #桃園POV 裡，全世界頂尖設計師為這座城市寫下情書。帶著這些跨文化視野，我們都是流動中的世界公民！」',
-      en: '“In A13 #TaoyuanPOV, international designers wrote love letters to Taoyuan. With these global perspectives, we are all citizens of flow!”'
+      zh: '「從青埔出發，世界就是我們的客廳！在 A13 #桃園POV 裡，各國頂尖設計師帶來跨文化語彙，所有零件都緊密相扣、精彩共振。」',
+      en: '“From Qingpu to the world: in A13 #TaoyuanPOV, international creators turn Taoyuan into a global living room where every piece fits seamlessly!”'
     }
   };
 
@@ -218,6 +192,38 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
     { code: 'A6', title: { zh: '桃〇計畫－未來循環園', en: 'TAOPIA Circular Park' }, img: craftUrbanImg, tag: { zh: '永續流', en: 'Circular Future' } },
     { code: 'A13', title: { zh: '#桃園POV', en: '#TaoyuanPOV' }, img: taoyuanPovImg, tag: { zh: '國際流', en: 'Global POV' } },
   ];
+
+  // Copy all area expressions to clipboard
+  const handleCopyAllExpressions = () => {
+    const lines = [
+      language === 'en' 
+        ? `【Taiwan Design Expo 2026 · Curated Stops Cultural Perspectives】`
+        : `【2026 台灣設計展 · 專屬動線已造訪站點與文化觀點手記】`,
+      language === 'en' 
+        ? `Curator Persona: ${persona.name[language]} · MÖMÖ Mascot: ${avatarInfo.name[language]}`
+        : `觀展角色：${persona.name[language]} · 桃桃化身：${avatarInfo.name[language]}`,
+      `==================================================`,
+    ];
+
+    journey.exhibits.forEach((ex, idx) => {
+      const exp = activeExpressions[ex.id];
+      const isVisited = visitedExhibitIds.includes(ex.id) || savedInsightIds.includes(ex.id);
+      lines.push(`\n[${idx + 1}] ${ex.code} ${ex.title[language]} (${ex.subFlowTheme[language]}) - ${isVisited ? '✓ 已造訪' : '○ 預定動線'}`);
+      lines.push(`  官方核心策展觀點: "${ex.oneSentenceTakeaway[language]}"`);
+      if (exp?.text) {
+        lines.push(`  ✍️ 我的展區觀點 [${exp.tag || '心得'}]: "${exp.text}"`);
+      } else {
+        lines.push(`  ✍️ 我的展區觀點: (尚未記錄)`);
+      }
+    });
+
+    lines.push(`\n==================================================`);
+    lines.push(language === 'en' ? `Generated by Taiwan Design Expo 2026 Area 1 Digital Passport` : `2026 台灣設計展 青埔展區 Area 1 專屬數位護照生成`);
+
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopyAllToast(true);
+    setTimeout(() => setCopyAllToast(false), 2500);
+  };
 
   // Generate 9:16 Instagram Story PNG on HTML5 Canvas
   const handleDownloadStoryCard = () => {
@@ -292,12 +298,12 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
 
     ctx.fillStyle = '#E4007F';
     ctx.font = 'bold 32px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(`FLOWMOMO: ${avatarInfo.name[language]}`, 540, 450);
+    ctx.fillText(`MÖMÖ · 桃桃: ${avatarInfo.name[language]}`, 540, 450);
 
-    // Draw Momo Avatar Image
+    // Draw Momo Avatar Image (IKEA Manual Line-Art Edition)
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = flowmomoImg;
+    img.src = ikeaMomoImg;
     img.onload = () => {
       // Pink glowing avatar ring
       ctx.save();
@@ -350,7 +356,7 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
       ctx.textAlign = 'left';
       ctx.fillText(`CULTURAL HIGHLIGHTS & KEY TAKEAWAYS`, 140, 1100);
 
-      // List 3 top takeaways
+      // List 3 top takeaways & user expressions
       let yPos = 1170;
       effectiveExhibits.slice(0, 3).forEach((ex, idx) => {
         // Number badge
@@ -370,11 +376,18 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
         ctx.font = 'bold 30px "Plus Jakarta Sans", sans-serif';
         ctx.fillText(`${ex.code} ${ex.title[language]}`, 210, yPos);
 
-        // One-sentence Takeaway
-        ctx.fillStyle = '#4B5563';
-        ctx.font = 'italic 24px "Plus Jakarta Sans", sans-serif';
-        const takeawayStr = `"${ex.oneSentenceTakeaway[language].substring(0, 48)}..."`;
-        ctx.fillText(takeawayStr, 210, yPos + 40);
+        // User Expression or Curatorial Takeaway
+        const userExp = activeExpressions[ex.id]?.text;
+        if (userExp) {
+          ctx.fillStyle = '#E4007F';
+          ctx.font = 'bold italic 22px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(`✍️ 我的觀點: "${userExp.substring(0, 32)}${userExp.length > 32 ? '...' : ''}"`, 210, yPos + 40);
+        } else {
+          ctx.fillStyle = '#4B5563';
+          ctx.font = 'italic 24px "Plus Jakarta Sans", sans-serif';
+          const takeawayStr = `"${ex.oneSentenceTakeaway[language].substring(0, 48)}..."`;
+          ctx.fillText(takeawayStr, 210, yPos + 40);
+        }
 
         yPos += 130;
       });
@@ -449,19 +462,30 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
         <div className="flex items-center gap-2">
           {/* Ambient Soundscape Toggle */}
           <button
-            onClick={toggleAmbientSoundscape}
+            onClick={() => {
+              if (activeTab !== 'soundscape') {
+                setActiveTab('soundscape');
+                if (!expoSoundscape.isPlaying()) {
+                  expoSoundscape.start();
+                }
+              } else {
+                if (expoSoundscape.isPlaying()) {
+                  expoSoundscape.stop();
+                } else {
+                  expoSoundscape.start();
+                }
+              }
+            }}
             className={`min-h-[44px] px-3 text-xs font-medium rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
-              isPlayingAmbience
+              activeTab === 'soundscape'
                 ? 'bg-[#E4007F] text-white border-[#E4007F] shadow-sm shadow-pink-300'
                 : 'bg-white/80 text-stone-700 border-pink-200 hover:bg-pink-50'
             }`}
-            title={isPlayingAmbience ? 'Pause ambient exhibition sound' : 'Play ambient exhibition sound'}
+            title={language === 'en' ? 'Immersive Exhibition Soundscape' : '展場沉浸聲景'}
           >
-            {isPlayingAmbience ? <Volume2 className="w-3.5 h-3.5 animate-pulse" /> : <VolumeX className="w-3.5 h-3.5" />}
+            <Volume2 className={`w-3.5 h-3.5 ${activeTab === 'soundscape' ? 'animate-pulse' : ''}`} />
             <span className="hidden xs:inline">
-              {isPlayingAmbience 
-                ? (language === 'en' ? 'Ambience Playing' : '展場聲景播放中')
-                : (language === 'en' ? 'Soundscape' : '展場聲景')}
+              {language === 'en' ? 'Soundscape' : '展場聲景'}
             </span>
           </button>
 
@@ -496,86 +520,172 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* THE OFFICIAL CHARACTER: 桃 MOMO (FLOWMOMO) LIVING MASCOT */}
+      {/* THE OFFICIAL CHARACTER: MÖMÖ · 桃桃 (IKEA STYLE MANUAL)   */}
       {/* ======================================================== */}
-      <section className="relative rounded-3xl p-5 border border-pink-200/90 shadow-lg bg-gradient-to-b from-white via-pink-50/50 to-pink-100/40 overflow-hidden">
-        {/* Soft pink blurred background glows */}
-        <div className="absolute top-0 right-0 w-44 h-44 bg-pink-300/25 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-40 h-40 bg-rose-200/30 rounded-full blur-2xl pointer-events-none" />
+      <section className="relative rounded-3xl border-2 border-stone-800 bg-[#FFFDF9] shadow-[5px_5px_0px_#1C1917] overflow-hidden transition-all">
+        {/* Top IKEA Manual Style Blueprint Header Bar */}
+        <div className="bg-stone-900 text-white px-4 py-2 flex items-center justify-between border-b-2 border-stone-800 flex-wrap gap-2 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <span className="bg-[#E4007F] text-white px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase">
+              IKEA MANUAL
+            </span>
+            <span className="font-bold tracking-wider text-stone-100">
+              MÖMÖ · SAMLINGSGUIDE
+            </span>
+            <span className="text-stone-400 hidden xs:inline">
+              · 桃桃觀展組立指南
+            </span>
+          </div>
 
-        <div className="relative z-10 flex flex-col sm:flex-row items-center gap-5">
-          {/* Animated Mascot Portrait with Hot Pink Aura */}
-          <div 
-            onClick={() => {
-              playMomoChime();
-              setCharacterMood(prev => prev === 'inspired' ? 'tectonic' : prev === 'tectonic' ? 'playful' : prev === 'playful' ? 'rooted' : 'inspired');
-            }}
-            className="group relative cursor-pointer shrink-0"
-            title="點擊與 桃 MOMO 互動！"
-          >
-            {/* Pulsing Pink Radial Halo */}
-            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#E4007F] to-[#FF65A3] opacity-35 blur-md group-hover:opacity-60 transition-opacity animate-pulse" />
+          <div className="flex items-center gap-3 text-[11px] text-stone-400">
+            <span>ART.NR: 2026.09.24</span>
+            <span className="text-pink-400">·</span>
+            <span>14 DELAR (STOPS)</span>
+          </div>
+        </div>
 
-            {/* Mascot Avatar Ring */}
-            <div className="relative w-32 h-32 rounded-full p-1 bg-gradient-to-tr from-[#E4007F] via-[#FF2D78] to-[#FF65A3] shadow-md group-hover:scale-105 transition-transform duration-300">
-              <div className="w-full h-full rounded-full overflow-hidden bg-white">
-                <img
-                  src={flowmomoImg}
-                  alt="桃 MOMO · Taiwan Design Expo Mascot"
-                  className="w-full h-full object-cover"
-                />
+        {/* Content Body */}
+        <div className="p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row items-center gap-5">
+            {/* Mascot Visual Display with Mode Switcher */}
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <div 
+                onClick={() => {
+                  playMomoChime();
+                  setCharacterMood(prev => prev === 'inspired' ? 'tectonic' : prev === 'tectonic' ? 'playful' : prev === 'playful' ? 'rooted' : 'inspired');
+                }}
+                className="group relative cursor-pointer"
+                title={language === 'en' ? 'Click Momo to switch mood & hear chime!' : '點擊 MÖMÖ 聽風鈴聲與切換手持工具！'}
+              >
+                {/* Clean IKEA Framed Box */}
+                <div className="w-36 h-36 rounded-2xl border-2 border-stone-800 bg-white p-2 flex items-center justify-center shadow-[3px_3px_0px_#1C1917] group-hover:shadow-[4px_4px_0px_#E4007F] group-hover:-translate-y-0.5 transition-all">
+                  {mascotVisualMode === 'vector' ? (
+                    <IkeaMomoCharacter
+                      mood={characterMood}
+                      size="md"
+                      className="w-full h-full"
+                    />
+                  ) : (
+                    <img
+                      src={ikeaMomoImg}
+                      alt="IKEA Style MÖMÖ Mascot"
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </div>
+
+                {/* Click hint badge */}
+                <div className="absolute -bottom-2 -right-2 bg-[#E4007F] text-white p-1.5 rounded-full border-2 border-stone-800 shadow-sm group-hover:scale-110 transition-transform">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {/* Visual Mode Toggle: Vector vs Manual Image */}
+              <div className="inline-flex rounded-lg border border-stone-300 p-0.5 bg-stone-100 text-[11px] font-mono">
+                <button
+                  type="button"
+                  onClick={() => setMascotVisualMode('vector')}
+                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                    mascotVisualMode === 'vector'
+                      ? 'bg-stone-900 text-white font-bold'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  {language === 'en' ? 'Vector' : '向量互動'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMascotVisualMode('manual')}
+                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                    mascotVisualMode === 'manual'
+                      ? 'bg-stone-900 text-white font-bold'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  {language === 'en' ? 'Manual Art' : '手冊插畫'}
+                </button>
               </div>
             </div>
 
-            {/* Click to play sound badge */}
-            <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-[#E4007F] to-[#FF2D78] text-white p-2 rounded-full shadow-md group-hover:scale-110 transition-transform">
-              <Sparkles className="w-4 h-4" />
+            {/* Mascot Interactive Speech Bubble & Assembly Instructions */}
+            <div className="flex-1 min-w-0 space-y-3 text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded bg-stone-900 text-white text-[11px] font-mono font-bold">
+                  MODELL: MÖMÖ-2026
+                </span>
+                <span className="font-serif text-lg font-bold text-stone-900">
+                  {avatarInfo.name[language]}
+                </span>
+                <span className="text-xs text-stone-500 font-mono hidden xs:inline">
+                  · {avatarInfo.archetype[language]}
+                </span>
+              </div>
+
+              {/* IKEA Instruction Speech Box with Monoline Border */}
+              <div className="relative p-3.5 rounded-xl bg-white border-2 border-stone-800 shadow-[2px_2px_0px_#1C1917] text-xs text-stone-800 leading-relaxed font-sans">
+                <p className="font-medium">
+                  {moodDialogues[characterMood][language]}
+                </p>
+                <div className="text-[10px] text-[#E4007F] font-mono font-bold pt-1.5 flex items-center justify-center sm:justify-start gap-1">
+                  <span>KLICK!</span>
+                  <span className="text-stone-500 font-normal">
+                    {language === 'en' ? 'Tap Momo above to hear special chime & change tools!' : '點擊上方 MÖMÖ 聽專屬風鈴聲與切換工具！'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Mood selector buttons (IKEA Style) */}
+              <div className="flex items-center justify-center sm:justify-start gap-1.5 flex-wrap pt-0.5">
+                {(['inspired', 'tectonic', 'playful', 'rooted'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setCharacterMood(m);
+                      playMomoChime();
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all cursor-pointer border ${
+                      characterMood === m
+                        ? 'bg-[#E4007F] text-white border-stone-900 font-bold shadow-[2px_2px_0px_#1C1917]'
+                        : 'bg-white hover:bg-pink-50 text-stone-700 border-stone-300'
+                    }`}
+                  >
+                    {m === 'inspired' ? '🌸 靈感漫遊' : m === 'tectonic' ? '🔧 六角板手' : m === 'playful' ? '🎈 彩光童心' : '🍵 千塘風土'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Mascot Interactive Speech Bubble */}
-          <div className="flex-1 min-w-0 space-y-2 text-center sm:text-left">
-            <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#E4007F] text-white text-[11px] font-mono font-bold shadow-xs">
-                {language === 'en' ? 'Official Expo Guide' : '大會官方嚮導'}
+          {/* IKEA 3-Step Assembly Guide Strip */}
+          <div className="pt-3 border-t border-stone-200 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+            <div className="p-2.5 rounded-xl bg-stone-100/80 border border-stone-200 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                1
               </span>
-              <span className="font-serif text-lg font-bold text-stone-900">
-                {avatarInfo.name[language]}
-              </span>
-              <span className="text-xs text-stone-500 font-medium hidden xs:inline">
-                · {avatarInfo.archetype[language]}
-              </span>
-            </div>
-
-            {/* Speech bubble */}
-            <div className="relative p-3.5 rounded-2xl bg-white/90 border border-pink-200/80 shadow-xs text-xs text-stone-700 leading-relaxed">
-              <p>
-                {moodDialogues[characterMood][language]}
-              </p>
-              <div className="text-[10px] text-[#E4007F] font-medium pt-1.5 flex items-center justify-center sm:justify-start gap-1">
-                <Sparkles className="w-3 h-3" />
-                <span>{language === 'en' ? 'Tap Momo above to hear special chime & change mood!' : '點擊左方 桃 MOMO 聽專屬風鈴聲與不同心情！'}</span>
+              <div className="min-w-0">
+                <div className="font-bold text-stone-900">PLANERA · 規劃</div>
+                <div className="text-[10px] text-stone-500 truncate">循 14 展位專屬動線</div>
               </div>
             </div>
 
-            {/* Mood selector buttons */}
-            <div className="flex items-center justify-center sm:justify-start gap-1.5 flex-wrap pt-0.5">
-              {(['inspired', 'tectonic', 'playful', 'rooted'] as const).map(m => (
-                <button
-                  key={m}
-                  onClick={() => {
-                    setCharacterMood(m);
-                    playMomoChime();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                    characterMood === m
-                      ? 'bg-[#E4007F] text-white font-bold shadow-xs'
-                      : 'bg-white/80 hover:bg-pink-100/70 text-stone-600 border border-pink-200/50'
-                  }`}
-                >
-                  {m === 'inspired' ? '🌸 靈感漫遊' : m === 'tectonic' ? '💡 構造美學' : m === 'playful' ? '🎈 彩光童心' : '🍵 千塘風土'}
-                </button>
-              ))}
+            <div className="p-2.5 rounded-xl bg-stone-100/80 border border-stone-200 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                2
+              </span>
+              <div className="min-w-0">
+                <div className="font-bold text-stone-900">MONTERA · 組裝</div>
+                <div className="text-[10px] text-stone-500 truncate">六角板手鎖定核心洞見</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-pink-100/70 border border-pink-300 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-[#E4007F] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                3
+              </span>
+              <div className="min-w-0">
+                <div className="font-bold text-[#E4007F]">NJUT · 匯出</div>
+                <div className="text-[10px] text-stone-600 truncate">領取全息護照卡</div>
+              </div>
             </div>
           </div>
         </div>
@@ -657,11 +767,11 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
             {/* Character & Visitor Persona Synthesis */}
             <div className="text-center space-y-3">
               <div className="relative w-36 h-36 mx-auto rounded-full p-1 bg-gradient-to-tr from-[#E4007F] via-[#FF2D78] to-[#FF65A3] shadow-md">
-                <div className="w-full h-full rounded-full overflow-hidden bg-white">
+                <div className="w-full h-full rounded-full overflow-hidden bg-white flex items-center justify-center p-1">
                   <img
-                    src={flowmomoImg}
+                    src={ikeaMomoImg}
                     alt={avatarInfo.name[language]}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 </div>
                 <div className="absolute -bottom-1 -right-1 bg-[#E4007F] text-white p-2 rounded-full shadow-md">
@@ -686,64 +796,148 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
               </div>
             </div>
 
-            {/* Cultural Insights & Visited Counter */}
-            <div className="bg-white/80 rounded-2xl p-4 border border-pink-200/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-stone-900 uppercase tracking-wider">
-                  <Award className="w-4 h-4 text-[#E4007F]" />
-                  <span>{language === 'en' ? 'Curated Stops & Core Insights' : '專屬動線已造訪站點與文化觀點'}</span>
+            {/* Cultural Insights, Visited Counter & Area Expressions Editor */}
+            <div className="bg-white/90 rounded-3xl p-5 sm:p-6 border border-pink-200/90 shadow-sm space-y-4">
+              {/* Header Row */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-pink-100">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#E4007F] animate-pulse" />
+                    <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-[#E4007F]" />
+                      <span>{language === 'en' ? 'Curated Stops & Cultural Perspectives' : '專屬動線已造訪站點與文化觀點'}</span>
+                    </h3>
+                  </div>
+                  <p className="text-xs text-stone-500">
+                    {language === 'en' 
+                      ? 'Every part (A1, A2, etc.) is open for you to write what you want to express in that area.'
+                      : '各展區（A1、A2 等）皆可自由書寫你的文化觀點、心得感悟或想對策展人表達的話。'}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-800 tabular-nums">
-                  <span>{visitedCount} / {journey.exhibits.length} {language === 'en' ? 'Visited' : '站已造訪'}</span>
-                  <span className="text-pink-300">·</span>
-                  <span className="text-[#E4007F]">{savedInsightIds.length} {language === 'en' ? 'Saved' : '則收錄'}</span>
+
+                {/* Counters */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-xs font-mono font-bold text-[#E4007F] bg-pink-50 border border-pink-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <PenLine className="w-3 h-3" />
+                    <span>{expressedCount} / {journey.exhibits.length} {language === 'en' ? 'Expressed' : '站已留觀點'}</span>
+                  </div>
+                  <div className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <Check className="w-3 h-3 stroke-[3]" />
+                    <span>{visitedCount} / {journey.exhibits.length} {language === 'en' ? 'Visited' : '站已造訪'}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* List of Takeaways */}
-              <div className="space-y-2.5">
-                {journey.exhibits.map((ex, i) => {
-                  const isSaved = savedInsightIds.includes(ex.id);
-                  const isVisited = visitedExhibitIds.includes(ex.id) || isSaved;
-                  return (
-                    <div
-                      key={ex.id}
-                      className={`p-3 rounded-xl border text-xs transition-colors flex items-start gap-2.5 ${
-                        isVisited
-                          ? 'bg-pink-50/60 border-pink-200 text-stone-900'
-                          : 'bg-white border-stone-200/70 text-stone-400'
-                      }`}
-                    >
-                      <div
-                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                          isVisited
-                            ? 'bg-[#E4007F] text-white'
-                            : 'bg-stone-200 text-stone-500'
-                        }`}
-                      >
-                        {isVisited ? (
-                          <Check className="w-3 h-3 stroke-[3]" />
-                        ) : (
-                          <span className="font-mono text-[10px]">{i + 1}</span>
-                        )}
-                      </div>
+              {/* Filter Tabs & Copy All Notes Action Bar */}
+              <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                <div className="flex items-center gap-1.5 p-1 bg-pink-50/70 border border-pink-200/80 rounded-xl">
+                  <button
+                    onClick={() => setStopsFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      stopsFilter === 'all'
+                        ? 'bg-[#E4007F] text-white font-bold shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    {language === 'en' ? `All Parts (${journey.exhibits.length})` : `全部站點 (${journey.exhibits.length})`}
+                  </button>
+                  <button
+                    onClick={() => setStopsFilter('expressed')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                      stopsFilter === 'expressed'
+                        ? 'bg-[#E4007F] text-white font-bold shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <PenLine className="w-3 h-3" />
+                    <span>{language === 'en' ? `Expressed (${expressedCount})` : `已寫觀點 (${expressedCount})`}</span>
+                  </button>
+                  <button
+                    onClick={() => setStopsFilter('visited')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                      stopsFilter === 'visited'
+                        ? 'bg-[#E4007F] text-white font-bold shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <Check className="w-3 h-3 stroke-[3]" />
+                    <span>{language === 'en' ? `Visited (${visitedCount})` : `已造訪 (${visitedCount})`}</span>
+                  </button>
+                </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold truncate">
-                            {ex.title[language]}
-                          </span>
-                          <span className="font-mono font-bold text-[11px] text-[#E4007F] shrink-0 ml-2">
-                            {ex.code}
-                          </span>
-                        </div>
-                        <p className={`text-[11px] mt-0.5 leading-snug ${isSaved || isVisited ? 'text-stone-700' : 'text-stone-400 italic'}`}>
-                          "{ex.oneSentenceTakeaway[language]}"
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyAllExpressions}
+                    className="px-3 py-1.5 rounded-xl border border-pink-200 bg-white hover:bg-pink-50 text-stone-700 hover:text-[#E4007F] text-xs font-medium transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    title={language === 'en' ? 'Export all your notes' : '匯出複製全部筆記'}
+                  >
+                    {copyAllToast ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#E4007F]" />}
+                    <span>{copyAllToast ? (language === 'en' ? 'Copied to Clipboard!' : '已複製全展區手記！') : (language === 'en' ? 'Copy All Notes' : '複製全部展區筆記')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* List of Area Stops with Expression Editors */}
+              <div className="space-y-3 pt-1">
+                {(() => {
+                  const filtered = journey.exhibits.filter(ex => {
+                    if (stopsFilter === 'expressed') {
+                      return Boolean(activeExpressions[ex.id]?.text?.trim());
+                    }
+                    if (stopsFilter === 'visited') {
+                      return visitedExhibitIds.includes(ex.id) || savedInsightIds.includes(ex.id);
+                    }
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="p-8 text-center bg-pink-50/30 rounded-2xl border border-dashed border-pink-200 space-y-2">
+                        <p className="text-xs text-stone-500">
+                          {stopsFilter === 'expressed'
+                            ? (language === 'en' ? 'No area expressions written yet. Click on any stop in "All Parts" to write!' : '尚未撰寫任何展區觀點。切換至「全部站點」即可自由書寫！')
+                            : (language === 'en' ? 'No visited stops in this filter yet.' : '此篩選條件下尚無展點。')}
                         </p>
+                        <button
+                          onClick={() => setStopsFilter('all')}
+                          className="text-xs font-bold text-[#E4007F] underline underline-offset-4 cursor-pointer"
+                        >
+                          {language === 'en' ? 'View All Parts' : '查看全部展區站點'}
+                        </button>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  }
+
+                  return filtered.map((ex, i) => {
+                    const isSaved = savedInsightIds.includes(ex.id);
+                    const isVisited = visitedExhibitIds.includes(ex.id) || isSaved;
+                    return (
+                      <AreaExpressionItem
+                        key={ex.id}
+                        exhibit={ex}
+                        index={i}
+                        language={language}
+                        isVisited={isVisited}
+                        isSaved={isSaved}
+                        expression={activeExpressions[ex.id]}
+                        onSaveExpression={handleSaveExp}
+                        onDeleteExpression={handleDeleteExp}
+                        onToggleVisited={onToggleVisited}
+                        defaultExpanded={ex.id === 'exhibit_a1' && !activeExpressions[ex.id]}
+                      />
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Bottom Notice */}
+              <div className="pt-2 text-center text-[11px] text-stone-400 flex items-center justify-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#E4007F]" />
+                <span>
+                  {language === 'en' 
+                    ? 'All written expressions are dynamically embedded into your souvenir Instagram Story card.'
+                    : '你在各展區書寫的心得與觀點，將即時印製於專屬 9:16 IG 限動紀念圖卡中。'}
+                </span>
               </div>
             </div>
 
@@ -969,57 +1163,7 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
       {/* TAB 4: 🎧 TAOYUAN AMBIENT SOUNDSCAPE                     */}
       {/* ======================================================== */}
       {activeTab === 'soundscape' && (
-        <div className="bg-white rounded-3xl border border-pink-200 p-6 shadow-xl space-y-5 animate-in fade-in duration-200 text-center">
-          <div className="space-y-1">
-            <span className="text-xs font-bold text-[#E4007F] uppercase tracking-wider">
-              {language === 'en' ? 'Sensory Audio Synthesis' : '展場環境聲景沉浸回顧'}
-            </span>
-            <h2 className="font-serif text-2xl font-bold text-stone-900">
-              {language === 'en' ? 'Sounds of Taoyuan in Flow' : '桃園匯流・展場共鳴環境音'}
-            </h2>
-            <p className="text-xs text-stone-500 max-w-sm mx-auto">
-              {language === 'en'
-                ? 'Synthesized harmonized river ripples, parametric timber resonances, and ambient expo bells.'
-                : '以純淨 Web Audio 演算法即時生成的千塘水波、大跨距木構風息與大會迎賓風鈴聲景。'}
-            </p>
-          </div>
-
-          {/* Sound Visualizer Animation */}
-          <div className="p-6 rounded-2xl bg-gradient-to-b from-pink-50 to-pink-100/50 border border-pink-200 space-y-4">
-            <div className="flex items-center justify-center gap-1.5 h-16">
-              {[30, 60, 95, 45, 80, 100, 70, 40, 85, 60, 90, 50, 75, 95, 40, 65].map((h, i) => (
-                <span
-                  key={i}
-                  className={`w-2 rounded-full transition-all duration-300 ${
-                    isPlayingAmbience
-                      ? 'bg-gradient-to-t from-[#E4007F] to-[#FF65A3] animate-pulse'
-                      : 'bg-pink-200'
-                  }`}
-                  style={{
-                    height: isPlayingAmbience ? `${Math.max(20, (h * (0.6 + Math.random() * 0.4)))}%` : '20%',
-                    animationDelay: `${i * 0.08}s`
-                  }}
-                />
-              ))}
-            </div>
-
-            <button
-              onClick={toggleAmbientSoundscape}
-              className={`min-h-[50px] px-6 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer shadow-md ${
-                isPlayingAmbience
-                  ? 'bg-stone-900 text-white hover:bg-stone-800'
-                  : 'bg-gradient-to-r from-[#E4007F] to-[#FF2D78] hover:from-[#C9006F] hover:to-[#E4007F] text-white shadow-pink-300/50'
-              }`}
-            >
-              {isPlayingAmbience ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              <span>
-                {isPlayingAmbience
-                  ? (language === 'en' ? 'Pause Ambient Soundscape' : '暫停環境聲景播放')
-                  : (language === 'en' ? 'Start Ambient Soundscape' : '播放展場沉浸聲景')}
-              </span>
-            </button>
-          </div>
-        </div>
+        <SoundscapePlayerCard language={language} />
       )}
 
       {/* ======================================================== */}

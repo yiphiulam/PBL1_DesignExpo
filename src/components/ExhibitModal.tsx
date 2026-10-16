@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ExhibitItem, Language, PersonaId } from '../types/expo';
+import { ExhibitItem, Language, PersonaId, UserAreaExpression } from '../types/expo';
 import { PERSONAS } from '../data/exhibitionData';
 import { 
   X, 
@@ -17,7 +17,10 @@ import {
   Share2, 
   Quote, 
   FileText,
-  ThumbsUp
+  ThumbsUp,
+  PenLine,
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 
 interface ExhibitModalProps {
@@ -32,6 +35,9 @@ interface ExhibitModalProps {
   onVotePoll: (exhibitId: string, optionId: string) => void;
   isPlayingAudio: boolean;
   onToggleAudio: (exhibitId: string) => void;
+  expression?: UserAreaExpression;
+  onSaveExpression?: (exhibitId: string, text: string, tag?: string) => void;
+  onDeleteExpression?: (exhibitId: string) => void;
 }
 
 export const ExhibitModal: React.FC<ExhibitModalProps> = ({
@@ -46,10 +52,22 @@ export const ExhibitModal: React.FC<ExhibitModalProps> = ({
   onVotePoll,
   isPlayingAudio,
   onToggleAudio,
+  expression,
+  onSaveExpression,
+  onDeleteExpression,
 }) => {
   const [showTranscript, setShowTranscript] = useState(false);
   const [audioPlaybackRate, setAudioPlaybackRate] = useState<1 | 1.25>(1);
   const [audioProgress, setAudioProgress] = useState(25);
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState(expression?.text || '');
+  const [noteTag, setNoteTag] = useState(expression?.tag || (language === 'en' ? '💭 Reflection' : '💭 心得感悟'));
+  const [savedNoteToast, setSavedNoteToast] = useState(false);
+
+  useEffect(() => {
+    setNoteText(expression?.text || '');
+    setNoteTag(expression?.tag || (language === 'en' ? '💭 Reflection' : '💭 心得感悟'));
+  }, [expression, language]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -357,6 +375,109 @@ export const ExhibitModal: React.FC<ExhibitModalProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* User's Area Expression Section (What you want to express in this area) */}
+          <div className="p-4 bg-gradient-to-br from-pink-50/80 to-rose-50/50 rounded-2xl border border-pink-200/90 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#E4007F]">
+                <PenLine className="w-3.5 h-3.5" />
+                <span>{language === 'en' ? `What You Want to Express at ${exhibit.code}` : `寫下你在 ${exhibit.code} 的觀點與心得表達`}</span>
+              </div>
+              <span className="text-[10px] text-stone-400">
+                {language === 'en' ? 'Preserved in your Expo Passport' : '收錄至個人展覽護照'}
+              </span>
+            </div>
+
+            {expression?.text && !isEditingNote ? (
+              <div className="bg-white rounded-xl p-3 border border-pink-200 shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-[#E4007F] bg-pink-100 px-2 py-0.5 rounded-full">
+                    {expression.tag || (language === 'en' ? '💭 Reflection' : '💭 心得感悟')}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setIsEditingNote(true)}
+                      className="text-stone-400 hover:text-[#E4007F] text-xs p-1 rounded hover:bg-pink-50 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <PenLine className="w-3 h-3" />
+                      <span className="text-[10px]">{language === 'en' ? 'Edit' : '修改'}</span>
+                    </button>
+                    {onDeleteExpression && (
+                      <button
+                        onClick={() => onDeleteExpression(exhibit.id)}
+                        className="text-stone-400 hover:text-red-600 text-xs p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                        title={language === 'en' ? 'Delete expression' : '清除筆記'}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-stone-800 leading-relaxed pl-2 border-l-2 border-[#E4007F] font-medium whitespace-pre-wrap">
+                  "{expression.text}"
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  maxLength={300}
+                  rows={2}
+                  placeholder={
+                    language === 'en'
+                      ? `Write what you want to express at ${exhibit.code} (e.g. key inspiration, curatorial feedback, structural awe)...`
+                      : `寫下你在 ${exhibit.code} 最深刻的文化觸動、想對策展人說的話或在地反思...`
+                  }
+                  className="w-full text-xs p-2.5 rounded-xl border border-stone-200 focus:border-[#E4007F] focus:ring-1 focus:ring-[#E4007F] outline-none bg-white text-stone-900 leading-relaxed font-sans"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-stone-400 font-mono">{noteText.length}/300</span>
+                  <div className="flex items-center gap-2">
+                    {isEditingNote && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNoteText(expression?.text || '');
+                          setIsEditingNote(false);
+                        }}
+                        className="text-xs text-stone-500 hover:text-stone-700 px-2.5 py-1 rounded cursor-pointer"
+                      >
+                        {language === 'en' ? 'Cancel' : '取消'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!noteText.trim()}
+                      onClick={() => {
+                        if (noteText.trim() && onSaveExpression) {
+                          onSaveExpression(exhibit.id, noteText.trim(), noteTag);
+                          setIsEditingNote(false);
+                          setSavedNoteToast(true);
+                          setTimeout(() => setSavedNoteToast(false), 2000);
+                        }
+                      }}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-all flex items-center gap-1 cursor-pointer ${
+                        noteText.trim()
+                          ? 'bg-[#E4007F] hover:bg-[#C9006F] shadow-sm'
+                          : 'bg-stone-300 cursor-not-allowed'
+                      }`}
+                    >
+                      <Check className="w-3 h-3 stroke-[3]" />
+                      <span>{language === 'en' ? 'Save Note' : '儲存此展心得'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {savedNoteToast && (
+              <div className="text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1">
+                <Check className="w-3 h-3 stroke-[3]" />
+                <span>{language === 'en' ? 'Saved to your personal pass!' : '已成功儲存至你的專屬展覽護照！'}</span>
+              </div>
+            )}
           </div>
         </div>
 

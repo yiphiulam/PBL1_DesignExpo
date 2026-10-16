@@ -95,3 +95,11 @@ export interface UserVisitState {
   isPlayingAudio: boolean;
   audioProgress: number; // 0 to 100
 }
+
+export interface UserAreaExpression {
+  text: string;
+  tag?: string;
+  updatedAt: number;
+}
+
+export type UserExpressionsMap = Record<string, UserAreaExpression>;

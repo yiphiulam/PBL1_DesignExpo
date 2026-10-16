@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { CuratedJourney, ExhibitItem, ExhibitMode, Language, PersonaId } from '../types/expo';
+import { CuratedJourney, ExhibitItem, ExhibitMode, Language, PersonaId, UserExpressionsMap } from '../types/expo';
 import { PERSONAS, ALL_AREA1_EXHIBITS } from '../data/exhibitionData';
 import { InteractiveCampusMap } from './InteractiveCampusMap';
+import { IkeaMomoCharacter } from './IkeaMomoCharacter';
 import { 
   Footprints, 
   Headphones, 
@@ -17,7 +18,8 @@ import {
   MapPin,
   ExternalLink,
   Layers,
-  Map as MapIcon
+  Map as MapIcon,
+  PenLine
 } from 'lucide-react';
 
 interface MainDashboardProps {
@@ -35,6 +37,7 @@ interface MainDashboardProps {
   activeAudioExhibitId: string | null;
   isPlayingAudio: boolean;
   onToggleAudio: (exhibitId: string) => void;
+  userExpressions?: UserExpressionsMap;
 }
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
@@ -52,6 +55,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   activeAudioExhibitId,
   isPlayingAudio,
   onToggleAudio,
+  userExpressions,
 }) => {
   const [internalVisitedIds, setInternalVisitedIds] = useState<string[]>(['exhibit_a1']);
   const [viewScope, setViewScope] = useState<'curated' | 'all'>('curated');
@@ -338,7 +342,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
                     {language === 'en' ? 'All Curated Stops Completed!' : '已完成全部專屬動線展位！'}
                   </p>
                   <p className="text-[11px] text-emerald-700">
-                    {language === 'en' ? 'Ready to collect your personalized FLOWMOMO souvenir.' : '隨時可前往領取你的 FLOWMOMO 專屬數位紀念卡。'}
+                    {language === 'en' ? 'Ready to collect your personalized MÖMÖ souvenir.' : '隨時可前往領取你的 MÖMÖ 專屬全息紀念護照。'}
                   </p>
                 </div>
               </div>
@@ -386,6 +390,54 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               </div>
             </>
           )}
+
+          {/* Mini IKEA Style MÖMÖ Curatorial Helper Box */}
+          <div className="mt-2.5 pt-2.5 border-t border-stone-200/80 flex items-center gap-3 bg-stone-50/80 rounded-xl p-2.5 border border-stone-200/60">
+            <div
+              onClick={() => {
+                try {
+                  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+                  if (AudioCtx) {
+                    const ctx = new AudioCtx();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(659.25, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.3);
+                  }
+                } catch {}
+              }}
+              className="shrink-0 cursor-pointer hover:scale-105 transition-transform"
+              title={language === 'en' ? 'Click MÖMÖ for chime!' : '點擊 MÖMÖ 聽風鈴聲！'}
+            >
+              <IkeaMomoCharacter size="sm" mood={isCompleted ? 'playful' : 'tectonic'} />
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-stone-600">
+                <span className="bg-stone-900 text-white px-1.5 py-0.2 rounded text-[9px]">MÖMÖ</span>
+                <span>{language === 'en' ? 'IKEA CURATION TIP' : '桃桃組立指南'}</span>
+              </div>
+              <p className="text-stone-700 text-xs mt-0.5 leading-snug font-medium">
+                {isCompleted
+                  ? (language === 'en' 
+                      ? '“All parts assembled! Click Souvenir Card below to take home your full holographic pass.”' 
+                      : '「太棒了！所有展位零件已組立完成。點選下方「領取紀念卡」帶走全息護照！」')
+                  : nextUpExhibit
+                  ? (language === 'en'
+                      ? `“Step ${visitedCuratedCount + 1}: Move to ${nextUpExhibit.code} ${nextUpExhibit.title.en} to collect your next curatorial insight.”`
+                      : `「組立步驟 ${visitedCuratedCount + 1}：推薦前往 ${nextUpExhibit.code} ${nextUpExhibit.title.zh}，鎖定核心設計靈感！」`)
+                  : (language === 'en'
+                      ? '“Stroll freely through Area 1 and save insights into your passport.”'
+                      : '「漫步青埔展區，隨時收錄你的專屬觀展觀點。」')}
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -652,6 +704,24 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
                         "{exhibit.oneSentenceTakeaway[language]}"
                       </p>
                     </div>
+
+                    {/* User's Expressed Perspective Snippet if written */}
+                    {userExpressions?.[exhibit.id]?.text && (
+                      <div className="p-2.5 bg-gradient-to-r from-pink-50 to-rose-50 rounded-xl border border-pink-200 text-xs space-y-1">
+                        <div className="flex items-center gap-1 font-bold text-[#E4007F] text-[11px]">
+                          <PenLine className="w-3 h-3" />
+                          <span>{language === 'en' ? 'My Expressed Perspective:' : '我的展區文化觀點：'}</span>
+                          {userExpressions[exhibit.id].tag && (
+                            <span className="font-normal text-[10px] bg-pink-100 text-stone-700 px-1.5 py-0.2 rounded-md ml-1">
+                              {userExpressions[exhibit.id].tag}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-stone-800 font-medium italic pl-1.5 border-l-2 border-[#E4007F] line-clamp-2 leading-relaxed text-xs">
+                          "{userExpressions[exhibit.id].text}"
+                        </p>
+                      </div>
+                    )}
 
                     {/* Deep Dive Mode Expanded Information */}
                     {exhibitMode === 'deep_dive' && (
