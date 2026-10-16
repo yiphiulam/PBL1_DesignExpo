@@ -1,5 +1,5 @@
-// High-Fidelity Procedural Soundscape Engine for Taiwan Design Expo 2026
-// Generates warm organic pads, flowing water ripples, gentle wind, and crystalline pentatonic bells using Web Audio API
+// High-Fidelity Procedural Acoustic Soundscape Engine for Taiwan Design Expo 2026
+// Generates warm organic pads, flowing water stream with crystal droplets, and ethereal pentatonic wind chimes
 
 export type SoundscapeMood = 'water_breeze' | 'crystal_chimes' | 'timber_resonance' | 'twilight_haven';
 
@@ -47,9 +47,9 @@ export const SOUNDSCAPE_MOODS: Record<SoundscapeMood, SoundscapeMoodConfig> = {
     // C Add 9 / Am7 warm wooden voicing: C3, G3, D4, E4, G4
     padChord: [130.81, 196.00, 293.66, 329.63, 392.00],
     waterFilterFreq: 380,
-    chimeIntervalMs: 4000,
-    // Low wooden xylophone / temple chime
-    bellScale: [261.63, 329.63, 392.00, 523.25, 659.25, 783.99],
+    chimeIntervalMs: 3800,
+    // Low wooden xylophone / warm temple chime
+    bellScale: [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50],
   },
   twilight_haven: {
     id: 'twilight_haven',
@@ -59,7 +59,7 @@ export const SOUNDSCAPE_MOODS: Record<SoundscapeMood, SoundscapeMoodConfig> = {
     // A♭ Major 7: Ab2, Eb3, C4, G4, Bb4
     padChord: [103.83, 155.56, 261.63, 392.00, 466.16],
     waterFilterFreq: 450,
-    chimeIntervalMs: 2800,
+    chimeIntervalMs: 2600,
     // Ethereal Celestia notes
     bellScale: [415.30, 466.16, 523.25, 622.25, 698.46, 830.61, 932.33, 1046.50],
   }
@@ -69,49 +69,154 @@ class ExpoSoundscapeEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
+
+  // Spatial Hall Reverb / Diffusion Delay Nodes
+  private reverbSendGain: GainNode | null = null;
+  private delayNodeL: DelayNode | null = null;
+  private delayNodeR: DelayNode | null = null;
+
+  // Sub-busses
   private padGain: GainNode | null = null;
   private waterGain: GainNode | null = null;
   private chimeGain: GainNode | null = null;
 
-  // Active oscillators & nodes
+  // Active oscillators & stream sources
   private padOscs: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode }[] = [];
   private noiseNode: AudioBufferSourceNode | null = null;
   private noiseFilter: BiquadFilterNode | null = null;
   private noiseLfo: OscillatorNode | null = null;
 
   private chimeTimer: ReturnType<typeof setTimeout> | null = null;
+  private dropletTimer: ReturnType<typeof setTimeout> | null = null;
   private currentMood: SoundscapeMood = 'water_breeze';
-  private volume: number = 0.65;
+  private volume: number = 0.75;
   private active: boolean = false;
 
-  private initContext(): AudioContext {
+  constructor() {
+    // Setup lazy unlock on first user click anywhere in the window
+    if (typeof window !== 'undefined') {
+      const unlockAudio = () => {
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+        window.removeEventListener('pointerdown', unlockAudio);
+        window.removeEventListener('keydown', unlockAudio);
+      };
+      window.addEventListener('pointerdown', unlockAudio, { passive: true, once: true });
+      window.addEventListener('keydown', unlockAudio, { passive: true, once: true });
+    }
+  }
+
+  public async ensureAudioContext(): Promise<AudioContext> {
     if (!this.ctx || this.ctx.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
     }
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      try {
+        await this.ctx.resume();
+      } catch (err) {
+        console.warn('AudioContext resume pending user interaction', err);
+      }
     }
+
+    if (!this.masterGain && this.ctx) {
+      this.setupMasterChain(this.ctx);
+    }
+
     return this.ctx;
   }
 
-  // Generate pink/brown noise buffer for natural flowing water & wind
+  private setupMasterChain(ctx: AudioContext) {
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(this.volume, ctx.currentTime);
+
+    // Dynamic Limiter/Compressor to prevent digital clipping
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-12, ctx.currentTime);
+    compressor.knee.setValueAtTime(24, ctx.currentTime);
+    compressor.ratio.setValueAtTime(6, ctx.currentTime);
+    compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+    compressor.release.setValueAtTime(0.25, ctx.currentTime);
+
+    // Spectrum Analyser for real-time visual waves
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.85;
+
+    master.connect(compressor);
+    compressor.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    this.masterGain = master;
+    this.analyser = analyser;
+
+    // Sub-gains
+    this.padGain = ctx.createGain();
+    this.padGain.gain.setValueAtTime(0.42, ctx.currentTime);
+    this.padGain.connect(master);
+
+    this.waterGain = ctx.createGain();
+    this.waterGain.gain.setValueAtTime(0.35, ctx.currentTime);
+    this.waterGain.connect(master);
+
+    this.chimeGain = ctx.createGain();
+    this.chimeGain.gain.setValueAtTime(0.65, ctx.currentTime);
+    this.chimeGain.connect(master);
+
+    // 🌟 Spatial Stereo Hall Reverb / Diffusion Delay Network
+    const delayL = ctx.createDelay();
+    delayL.delayTime.setValueAtTime(0.26, ctx.currentTime); // 260ms left
+    const delayR = ctx.createDelay();
+    delayR.delayTime.setValueAtTime(0.39, ctx.currentTime); // 390ms right
+
+    const feedbackL = ctx.createGain();
+    feedbackL.gain.setValueAtTime(0.38, ctx.currentTime);
+    const feedbackR = ctx.createGain();
+    feedbackR.gain.setValueAtTime(0.35, ctx.currentTime);
+
+    const dampFilter = ctx.createBiquadFilter();
+    dampFilter.type = 'lowpass';
+    dampFilter.frequency.setValueAtTime(2400, ctx.currentTime);
+
+    const reverbSend = ctx.createGain();
+    reverbSend.gain.setValueAtTime(0.48, ctx.currentTime);
+
+    // Cross-feed delay network
+    reverbSend.connect(delayL);
+    reverbSend.connect(delayR);
+
+    delayL.connect(dampFilter);
+    dampFilter.connect(feedbackL);
+    feedbackL.connect(delayR);
+
+    delayR.connect(feedbackR);
+    feedbackR.connect(delayL);
+
+    delayL.connect(master);
+    delayR.connect(master);
+
+    this.reverbSendGain = reverbSend;
+    this.delayNodeL = delayL;
+    this.delayNodeR = delayR;
+  }
+
+  // Pink noise algorithm with warm low-end boost for natural water/wind
   private createWaterNoiseBuffer(ctx: AudioContext): AudioBuffer {
-    const bufferSize = ctx.sampleRate * 4; // 4 seconds looping buffer
+    const bufferSize = ctx.sampleRate * 4;
     const buffer = ctx.createBuffer(2, bufferSize, ctx.sampleRate);
     for (let channel = 0; channel < 2; channel++) {
       const output = buffer.getChannelData(channel);
       let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
       for (let i = 0; i < bufferSize; i++) {
         const white = Math.random() * 2 - 1;
-        // Pink noise filter algorithm (Paul Kellet)
         b0 = 0.99886 * b0 + white * 0.0555179;
         b1 = 0.99332 * b1 + white * 0.0750759;
         b2 = 0.96900 * b2 + white * 0.1538520;
         b3 = 0.86650 * b3 + white * 0.3104856;
         b4 = 0.55000 * b4 + white * 0.5329522;
         b5 = -0.7616 * b5 - white * 0.0168980;
-        output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.045;
+        output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.12;
         b6 = white * 0.115926;
       }
     }
@@ -125,38 +230,14 @@ class ExpoSoundscapeEngine {
     }
 
     try {
-      const ctx = this.initContext();
+      const ctx = await this.ensureAudioContext();
       this.currentMood = mood;
       const config = SOUNDSCAPE_MOODS[mood];
 
-      // Master Chain
-      const master = ctx.createGain();
-      master.gain.setValueAtTime(0.001, ctx.currentTime);
-      master.gain.exponentialRampToValueAtTime(this.volume, ctx.currentTime + 1.2);
-
-      // Analyser Node for visualizer
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 64;
-      analyser.smoothingTimeConstant = 0.8;
-
-      master.connect(analyser);
-      analyser.connect(ctx.destination);
-
-      this.masterGain = master;
-      this.analyser = analyser;
-
-      // Sub-gains
-      this.padGain = ctx.createGain();
-      this.padGain.gain.setValueAtTime(0.35, ctx.currentTime);
-      this.padGain.connect(master);
-
-      this.waterGain = ctx.createGain();
-      this.waterGain.gain.setValueAtTime(0.22, ctx.currentTime);
-      this.waterGain.connect(master);
-
-      this.chimeGain = ctx.createGain();
-      this.chimeGain.gain.setValueAtTime(0.45, ctx.currentTime);
-      this.chimeGain.connect(master);
+      if (this.masterGain) {
+        this.masterGain.gain.setValueAtTime(0.001, ctx.currentTime);
+        this.masterGain.gain.exponentialRampToValueAtTime(this.volume, ctx.currentTime + 1.0);
+      }
 
       // 1. Build Ambient Chord Pad
       this.startPad(ctx, config.padChord);
@@ -167,6 +248,10 @@ class ExpoSoundscapeEngine {
       // 3. Start Generative Chime Loop
       this.active = true;
       this.scheduleNextChime();
+      this.scheduleNextDroplet();
+
+      // Ring an immediate welcoming crystal chime
+      this.triggerChime(config.bellScale[2]);
     } catch (e) {
       console.warn('Failed to start ambient soundscape:', e);
       this.active = false;
@@ -177,37 +262,40 @@ class ExpoSoundscapeEngine {
     this.stopPad();
 
     chordFreqs.forEach((freq, idx) => {
-      // Warm low-pass filtered oscillator
       const osc = ctx.createOscillator();
       const oscGain = ctx.createGain();
       const filter = ctx.createBiquadFilter();
 
-      // Soft waveform: pure sine or warm triangle
+      // Mix sine & triangle for warm acoustic tone
       osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
-      // Subtle organic detuning for natural chorus shimmer
-      const detuneCents = (Math.random() - 0.5) * 8;
+
+      // Subtle organic detuning for natural warmth & shimmer
+      const detuneCents = (Math.random() - 0.5) * 10;
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
       osc.detune.setValueAtTime(detuneCents, ctx.currentTime);
 
-      // Warm low-pass filter (removes any harsh top-end)
+      // Warm low-pass filter
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(450 + (idx * 90), ctx.currentTime);
-      filter.Q.setValueAtTime(1.2, ctx.currentTime);
+      filter.frequency.setValueAtTime(500 + (idx * 110), ctx.currentTime);
+      filter.Q.setValueAtTime(1.4, ctx.currentTime);
 
-      // Slow organic breathing LFO
+      // Organic breathing LFO (slow breathing swell)
       const lfo = ctx.createOscillator();
       const lfoGain = ctx.createGain();
-      lfo.frequency.setValueAtTime(0.12 + idx * 0.05, ctx.currentTime);
-      lfoGain.gain.setValueAtTime(0.04, ctx.currentTime);
+      lfo.frequency.setValueAtTime(0.1 + idx * 0.04, ctx.currentTime);
+      lfoGain.gain.setValueAtTime(0.06, ctx.currentTime);
       lfo.connect(oscGain.gain);
       lfo.start();
 
-      oscGain.gain.setValueAtTime(0.18 / chordFreqs.length, ctx.currentTime);
+      oscGain.gain.setValueAtTime(0.24 / chordFreqs.length, ctx.currentTime);
 
       osc.connect(filter);
       filter.connect(oscGain);
       if (this.padGain) {
         oscGain.connect(this.padGain);
+      }
+      if (this.reverbSendGain) {
+        oscGain.connect(this.reverbSendGain);
       }
 
       osc.start();
@@ -237,14 +325,14 @@ class ExpoSoundscapeEngine {
     const bandpass = ctx.createBiquadFilter();
     bandpass.type = 'bandpass';
     bandpass.frequency.setValueAtTime(centerFreq, ctx.currentTime);
-    bandpass.Q.setValueAtTime(1.8, ctx.currentTime);
+    bandpass.Q.setValueAtTime(2.2, ctx.currentTime);
 
     // LFO gently sweeps water frequency like incoming gentle lake ripples
     const lfo = ctx.createOscillator();
     const lfoGain = ctx.createGain();
     lfo.type = 'sine';
-    lfo.frequency.setValueAtTime(0.18, ctx.currentTime); // 5.5 second ripple cycle
-    lfoGain.gain.setValueAtTime(centerFreq * 0.35, ctx.currentTime);
+    lfo.frequency.setValueAtTime(0.16, ctx.currentTime); // ~6.2s wave period
+    lfoGain.gain.setValueAtTime(centerFreq * 0.42, ctx.currentTime);
 
     lfo.connect(bandpass.frequency);
     lfo.start();
@@ -272,65 +360,167 @@ class ExpoSoundscapeEngine {
     }
   }
 
-  // Trigger a single crystalline pentatonic bell / water droplet
-  public triggerChime(freqOverride?: number) {
-    if (!this.ctx || this.ctx.state === 'closed') return;
-    const ctx = this.ctx;
-    const config = SOUNDSCAPE_MOODS[this.currentMood];
+  // Trigger natural organic water droplet ripple (💧 水波漣漪)
+  public async triggerWaterDroplet() {
+    try {
+      const ctx = await this.ensureAudioContext();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-    const freq = freqOverride || config.bellScale[Math.floor(Math.random() * config.bellScale.length)];
+      // Chirp down from ~1600Hz to 800Hz in 90ms (pure water droplet effect)
+      const baseFreq = 1200 + Math.random() * 500;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(baseFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.58, now + 0.12);
 
-    const now = ctx.currentTime;
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator(); // harmonic shimmer
-    const gainNode = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.18, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
 
-    // Pure crystal bell: fundamental sine + 2nd harmonic
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(freq, now);
+      osc.connect(gain);
+      if (this.waterGain) {
+        gain.connect(this.waterGain);
+      } else if (this.masterGain) {
+        gain.connect(this.masterGain);
+      }
 
-    osc2.type = 'sine';
-    // Harmonic overtone (2.76x or 3x for Tibetan bell / crystal chime feel)
-    osc2.frequency.setValueAtTime(freq * 2.76, now);
+      if (this.reverbSendGain) {
+        gain.connect(this.reverbSendGain);
+      }
 
-    // Shimmer bandpass
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(freq * 1.5, now);
-    filter.Q.setValueAtTime(2.5, now);
+      osc.start(now);
+      osc.stop(now + 0.38);
+    } catch {}
+  }
 
-    // Bell envelope: instant crystalline attack, long exponential shimmer decay
-    gainNode.gain.setValueAtTime(0.001, now);
-    gainNode.gain.linearRampToValueAtTime(0.16, now + 0.02);
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 2.8);
+  // Trigger high-fidelity Crystalline Pentatonic Bell / Wind Chime (✨ 水晶風鈴)
+  public async triggerChime(freqOverride?: number) {
+    try {
+      const ctx = await this.ensureAudioContext();
+      const config = SOUNDSCAPE_MOODS[this.currentMood];
+      const freq = freqOverride || config.bellScale[Math.floor(Math.random() * config.bellScale.length)];
 
-    osc1.connect(gainNode);
-    osc2.connect(filter);
-    filter.connect(gainNode);
+      const now = ctx.currentTime;
 
-    if (this.chimeGain) {
-      gainNode.connect(this.chimeGain);
-    } else if (this.masterGain) {
-      gainNode.connect(this.masterGain);
+      // Mode 1: Fundamental Sine (Singing pitch)
+      const osc1 = ctx.createOscillator();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(freq, now);
+
+      // Mode 2: Inharmonic Tibetan Bell Overtone (~2.756x)
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(freq * 2.756, now);
+
+      // Mode 3: Sparkling Crystal Shimmer (~5.404x)
+      const osc3 = ctx.createOscillator();
+      osc3.type = 'sine';
+      osc3.frequency.setValueAtTime(freq * 5.404, now);
+
+      // Mode 4: Initial metallic hammer strike transient (~8.933x)
+      const oscStrike = ctx.createOscillator();
+      oscStrike.type = 'triangle';
+      oscStrike.frequency.setValueAtTime(freq * 8.933, now);
+
+      // Individual Envelopes
+      const gainMain = ctx.createGain();
+      gainMain.gain.setValueAtTime(0.001, now);
+      gainMain.gain.linearRampToValueAtTime(0.38, now + 0.012);
+      gainMain.gain.exponentialRampToValueAtTime(0.0001, now + 3.6);
+
+      const gainOvertone = ctx.createGain();
+      gainOvertone.gain.setValueAtTime(0.001, now);
+      gainOvertone.gain.linearRampToValueAtTime(0.22, now + 0.008);
+      gainOvertone.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
+
+      const gainShimmer = ctx.createGain();
+      gainShimmer.gain.setValueAtTime(0.001, now);
+      gainShimmer.gain.linearRampToValueAtTime(0.14, now + 0.006);
+      gainShimmer.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+
+      const gainStrike = ctx.createGain();
+      gainStrike.gain.setValueAtTime(0.001, now);
+      gainStrike.gain.linearRampToValueAtTime(0.28, now + 0.004);
+      gainStrike.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+
+      // Shimmer Bandpass Filter for pristine crystal bell tone
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(freq * 1.8, now);
+      filter.Q.setValueAtTime(3.0, now);
+
+      osc1.connect(gainMain);
+      osc2.connect(gainOvertone);
+      osc3.connect(gainShimmer);
+      oscStrike.connect(gainStrike);
+
+      // Connect to chime output
+      const chimeMixer = ctx.createGain();
+      chimeMixer.gain.setValueAtTime(1.0, now);
+
+      gainMain.connect(chimeMixer);
+      gainOvertone.connect(chimeMixer);
+      gainShimmer.connect(filter);
+      filter.connect(chimeMixer);
+      gainStrike.connect(chimeMixer);
+
+      if (this.chimeGain) {
+        chimeMixer.connect(this.chimeGain);
+      } else if (this.masterGain) {
+        chimeMixer.connect(this.masterGain);
+      }
+
+      // Send to spatial hall reverb for ethereal resonance
+      if (this.reverbSendGain) {
+        chimeMixer.connect(this.reverbSendGain);
+      }
+
+      osc1.start(now);
+      osc2.start(now);
+      osc3.start(now);
+      oscStrike.start(now);
+
+      osc1.stop(now + 3.8);
+      osc2.stop(now + 2.6);
+      osc3.stop(now + 1.8);
+      oscStrike.stop(now + 0.2);
+    } catch (e) {
+      console.warn('Failed to play chime bell:', e);
     }
-
-    osc1.start(now);
-    osc2.start(now);
-    osc1.stop(now + 3.0);
-    osc2.stop(now + 3.0);
   }
 
   private scheduleNextChime() {
     if (!this.active) return;
     const config = SOUNDSCAPE_MOODS[this.currentMood];
-    // Slightly jitter interval for organic natural breeze feel
-    const jitter = (Math.random() - 0.5) * 1200;
-    const delay = Math.max(1400, config.chimeIntervalMs + jitter);
+    const jitter = (Math.random() - 0.5) * 1000;
+    const delay = Math.max(1600, config.chimeIntervalMs + jitter);
 
     this.chimeTimer = setTimeout(() => {
       if (this.active) {
+        // 35% chance to play a dual-chime breeze flutter
         this.triggerChime();
+        if (Math.random() < 0.35) {
+          setTimeout(() => {
+            if (this.active) {
+              const secondScale = config.bellScale;
+              this.triggerChime(secondScale[Math.floor(Math.random() * secondScale.length)]);
+            }
+          }, 240);
+        }
         this.scheduleNextChime();
+      }
+    }, delay);
+  }
+
+  private scheduleNextDroplet() {
+    if (!this.active) return;
+    // Water droplets every 3-6 seconds
+    const delay = 3200 + Math.random() * 3800;
+    this.dropletTimer = setTimeout(() => {
+      if (this.active) {
+        this.triggerWaterDroplet();
+        this.scheduleNextDroplet();
       }
     }, delay);
   }
@@ -340,10 +530,8 @@ class ExpoSoundscapeEngine {
     if (!this.active || !this.ctx) return;
     const config = SOUNDSCAPE_MOODS[mood];
 
-    // Smoothly re-voice pad and water stream
     this.startPad(this.ctx, config.padChord);
     this.startWaterStream(this.ctx, config.waterFilterFreq);
-    // Ring an immediate celebratory bell in the new key
     this.triggerChime(config.bellScale[config.bellScale.length - 2]);
   }
 
@@ -360,21 +548,19 @@ class ExpoSoundscapeEngine {
       clearTimeout(this.chimeTimer);
       this.chimeTimer = null;
     }
+    if (this.dropletTimer) {
+      clearTimeout(this.dropletTimer);
+      this.dropletTimer = null;
+    }
 
     if (this.masterGain && this.ctx) {
       const now = this.ctx.currentTime;
-      // Smooth fade-out over 0.8s (zero pops or harsh clicks)
       this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-      this.masterGain.gain.linearRampToValueAtTime(0.001, now + 0.8);
+      this.masterGain.gain.linearRampToValueAtTime(0.001, now + 0.6);
       setTimeout(() => {
         this.stopPad();
         this.stopWaterStream();
-        if (this.ctx && this.ctx.state !== 'closed') {
-          this.ctx.close();
-        }
-        this.ctx = null;
-        this.masterGain = null;
-      }, 850);
+      }, 650);
     } else {
       this.stopPad();
       this.stopWaterStream();
@@ -394,8 +580,7 @@ class ExpoSoundscapeEngine {
   }
 
   public getAnalyserData(dataArray: Uint8Array): void {
-    if (this.analyser && this.active) {
-      // Cast for TypeScript lib compatibility with AnalyserNode
+    if (this.analyser && (this.active || this.ctx?.state === 'running')) {
       (this.analyser.getByteFrequencyData as (arr: Uint8Array) => void)(dataArray);
     } else {
       dataArray.fill(0);

@@ -30,10 +30,8 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-// Pre-bundled high quality Expo imagery & IKEA Mascot
-import flowmomoImg from '../assets/images/flowmomo_character_1791790478962.jpg';
-import ikeaMomoImg from '../assets/images/ikea_momo_mascot_1792155183359.jpg';
-import { IkeaMomoCharacter } from './IkeaMomoCharacter';
+// Pre-bundled high quality Expo imagery & Mascot
+import { IkeaMomoCharacter, getIkeaMomoDataUrl } from './IkeaMomoCharacter';
 import { AreaExpressionItem } from './AreaExpressionItem';
 import { SoundscapePlayerCard } from './SoundscapePlayerCard';
 import { expoSoundscape } from '../utils/expoSoundscapeEngine';
@@ -115,7 +113,6 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
   // Expressed count for the curated route
   const expressedCount = journey.exhibits.filter(ex => Boolean(activeExpressions[ex.id]?.text?.trim())).length;
   const [characterMood, setCharacterMood] = useState<'inspired' | 'tectonic' | 'playful' | 'rooted' | 'global'>('inspired');
-  const [mascotVisualMode, setMascotVisualMode] = useState<'vector' | 'manual'>('vector');
 
   const persona = PERSONAS.find(p => p.id === journey.personaId) || PERSONAS[0];
   const avatarInfo = FLOWMOMO_AVATARS[journey.personaId] || FLOWMOMO_AVATARS.first_timer;
@@ -141,27 +138,27 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
     };
   }, []);
 
-  // Character quotes by mood (IKEA Manual Edition)
+  // Character quotes by mood
   const moodDialogues = {
     inspired: {
-      zh: '「Hej！我是 MÖMÖ 桃桃！✨ 像 IKEA 組裝說明書一樣，我們用最純粹的極簡線條與好奇心，把青埔展區的靈感零件一步步拼裝進生活！來看看你的專屬觀展護照吧！」',
-      en: '“Hej! I’m MÖMÖ! ✨ Just like an IKEA instruction manual, we assemble ideas piece by piece with clean lines and curiosity. Explore your personalized exhibition passport!”'
+      zh: '「嗨！我是桃 MOMO！✨ 帶著純粹的好奇心，我們在青埔展區將水文與設計靈感一步步收進生活。快來探索你的專屬觀展護照吧！」',
+      en: '“Hi! I’m Tao MOMO! ✨ With pure curiosity, we gather flowing inspiration from Area 1 into everyday life. Explore your personalized exhibition passport!”'
     },
     tectonic: {
-      zh: '「六角板手準備好了嗎？🔧 在 A1 大跨距木構與 A6 循環材料中，每顆螺栓與卡榫都是嚴謹造物美學。不需任何多餘膠水，結構本身就是最好的設計！」',
-      en: '“Got your hex key ready? 🔧 From A1 timber joints to A6 circular loops, every bolt and mortise is honest craft. No glue needed—pure structure!”'
+      zh: '「在 A1 大跨距木構與 A6 循環材料中，每顆螺栓與卡榫都是嚴謹造物美學。不需任何多餘膠水，結構本身就是最好的設計！」',
+      en: '“From A1 timber joints to A6 circular loops, every bolt and mortise is honest craft. No glue needed—pure structure!”'
     },
     playful: {
-      zh: '「組立說明書第 3 步：把日常煩惱收進平整包裝盒，拿著彩色氣球跨過 A3 彩光天橋！保持簡單、保持微笑，就是最棒的設計哲學。」',
-      en: '“Manual Step 3: Put worries in a flat-pack box and stroll across A3 Rainbow Bridge! Keep it simple, keep smiling—pure joyful design!”'
+      zh: '「把日常煩惱放下，帶著童心與好奇跨過 A3 彩光天橋！保持簡單、保持微笑，就是最棒的設計哲學。」',
+      en: '“Leave your worries behind and cross the radiant A3 bridge! Stay curious and joyful—that is true design philosophy!”'
     },
     rooted: {
-      zh: '「桃園的千塘水脈就像家裡最溫潤的原木餐桌，經得起歲月發酵。在 A10 水之道與 A7 市集裡，我們聽見了故土最厚實純粹的匠人手溫。」',
-      en: '“Taoyuan’s water ponds are like a seasoned solid pine dining table—timeless and warm. In A10 and A7, we celebrate honest local craftsmanship.”'
+      zh: '「桃園的千塘水脈就像歲月陳釀，溫潤厚實。在 A10 水之道與 A7 市集裡，我們聽見了故土最厚實純粹的匠人手溫。」',
+      en: '“Taoyuan’s water ponds are timeless and warm. In A10 and A7, we celebrate deep terroir and honest local craftsmanship.”'
     },
     global: {
       zh: '「從青埔出發，世界就是我們的客廳！在 A13 #桃園POV 裡，各國頂尖設計師帶來跨文化語彙，所有零件都緊密相扣、精彩共振。」',
-      en: '“From Qingpu to the world: in A13 #TaoyuanPOV, international creators turn Taoyuan into a global living room where every piece fits seamlessly!”'
+      en: '“From Qingpu to the world: in A13 #TaoyuanPOV, international creators turn Taoyuan into a global living room where diverse cultures resonate!”'
     }
   };
 
@@ -300,10 +297,10 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
     ctx.font = 'bold 32px "Plus Jakarta Sans", sans-serif';
     ctx.fillText(`MÖMÖ · 桃桃: ${avatarInfo.name[language]}`, 540, 450);
 
-    // Draw Momo Avatar Image (IKEA Manual Line-Art Edition)
+    // Draw Momo Avatar Image (IKEA Vector Line-Art Edition)
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = ikeaMomoImg;
+    img.src = getIkeaMomoDataUrl(characterMood);
     img.onload = () => {
       // Pink glowing avatar ring
       ctx.save();
@@ -547,8 +544,8 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
         {/* Content Body */}
         <div className="p-5 space-y-4">
           <div className="flex flex-col sm:flex-row items-center gap-5">
-            {/* Mascot Visual Display with Mode Switcher */}
-            <div className="flex flex-col items-center gap-2 shrink-0">
+            {/* Mascot Visual Display: Simple IKEA-style Momo */}
+            <div className="flex flex-col items-center shrink-0">
               <div 
                 onClick={() => {
                   playMomoChime();
@@ -559,51 +556,17 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
               >
                 {/* Clean IKEA Framed Box */}
                 <div className="w-36 h-36 rounded-2xl border-2 border-stone-800 bg-white p-2 flex items-center justify-center shadow-[3px_3px_0px_#1C1917] group-hover:shadow-[4px_4px_0px_#E4007F] group-hover:-translate-y-0.5 transition-all">
-                  {mascotVisualMode === 'vector' ? (
-                    <IkeaMomoCharacter
-                      mood={characterMood}
-                      size="md"
-                      className="w-full h-full"
-                    />
-                  ) : (
-                    <img
-                      src={ikeaMomoImg}
-                      alt="IKEA Style MÖMÖ Mascot"
-                      className="w-full h-full object-contain"
-                    />
-                  )}
+                  <IkeaMomoCharacter
+                    mood={characterMood}
+                    size="md"
+                    className="w-full h-full"
+                  />
                 </div>
 
                 {/* Click hint badge */}
                 <div className="absolute -bottom-2 -right-2 bg-[#E4007F] text-white p-1.5 rounded-full border-2 border-stone-800 shadow-sm group-hover:scale-110 transition-transform">
                   <Sparkles className="w-3.5 h-3.5" />
                 </div>
-              </div>
-
-              {/* Visual Mode Toggle: Vector vs Manual Image */}
-              <div className="inline-flex rounded-lg border border-stone-300 p-0.5 bg-stone-100 text-[11px] font-mono">
-                <button
-                  type="button"
-                  onClick={() => setMascotVisualMode('vector')}
-                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                    mascotVisualMode === 'vector'
-                      ? 'bg-stone-900 text-white font-bold'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  {language === 'en' ? 'Vector' : '向量互動'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMascotVisualMode('manual')}
-                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                    mascotVisualMode === 'manual'
-                      ? 'bg-stone-900 text-white font-bold'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  {language === 'en' ? 'Manual Art' : '手冊插畫'}
-                </button>
               </div>
             </div>
 
@@ -767,13 +730,11 @@ export const PostVisitScreen: React.FC<PostVisitScreenProps> = ({
             {/* Character & Visitor Persona Synthesis */}
             <div className="text-center space-y-3">
               <div className="relative w-36 h-36 mx-auto rounded-full p-1 bg-gradient-to-tr from-[#E4007F] via-[#FF2D78] to-[#FF65A3] shadow-md">
-                <div className="w-full h-full rounded-full overflow-hidden bg-white flex items-center justify-center p-1">
-                  <img
-                    src={ikeaMomoImg}
-                    alt={avatarInfo.name[language]}
-                    className="w-full h-full object-contain"
+                  <IkeaMomoCharacter
+                    mood={characterMood}
+                    size="md"
+                    className="w-full h-full scale-105"
                   />
-                </div>
                 <div className="absolute -bottom-1 -right-1 bg-[#E4007F] text-white p-2 rounded-full shadow-md">
                   <Sparkles className="w-4 h-4" />
                 </div>

@@ -1135,7 +1135,7 @@ export const FLOWMOMO_AVATARS: Record<PersonaId, {
     },
     badgeText: { en: 'Area 1 Highlights · Pure Curiosity', zh: '青埔亮點 · 直覺共鳴' },
     accentColor: '#D97706',
-    image: '/src/assets/images/ikea_momo_mascot_1792155183359.jpg'
+    image: '/src/assets/images/flowmomo_character_1791790478962.jpg'
   },
   design_student: {
     name: { en: 'Architect MOMO', zh: '構築美學 MOMO' },
@@ -1146,7 +1146,7 @@ export const FLOWMOMO_AVATARS: Record<PersonaId, {
     },
     badgeText: { en: 'Tectonic Craft · Circular Vision', zh: '構造靈性 · 循環前瞻' },
     accentColor: '#D9532F',
-    image: '/src/assets/images/ikea_momo_mascot_1792155183359.jpg'
+    image: '/src/assets/images/flowmomo_character_1791790478962.jpg'
   },
   family: {
     name: { en: 'Playful MOMO', zh: '歡喜微光 MOMO' },
@@ -1157,7 +1157,7 @@ export const FLOWMOMO_AVATARS: Record<PersonaId, {
     },
     badgeText: { en: 'Sensory Wonder · Playful Warmth', zh: '五感童趣 · 溫煦共享' },
     accentColor: '#2E6F56',
-    image: '/src/assets/images/ikea_momo_mascot_1792155183359.jpg'
+    image: '/src/assets/images/flowmomo_character_1791790478962.jpg'
   },
   local_resident: {
     name: { en: 'Rooted MOMO', zh: '風土守望 MOMO' },
@@ -1168,7 +1168,7 @@ export const FLOWMOMO_AVATARS: Record<PersonaId, {
     },
     badgeText: { en: 'Taoyuan Pride · 24HR Backbone', zh: '故土長青 · 世界心臟' },
     accentColor: '#0F766E',
-    image: '/src/assets/images/ikea_momo_mascot_1792155183359.jpg'
+    image: '/src/assets/images/flowmomo_character_1791790478962.jpg'
   },
   cultural_hunter: {
     name: { en: 'Heritage MOMO', zh: '時光編織 MOMO' },
@@ -1179,7 +1179,7 @@ export const FLOWMOMO_AVATARS: Record<PersonaId, {
     },
     badgeText: { en: 'Living Heritage · Global Dialogue', zh: '文化獵影 · 國際對話' },
     accentColor: '#7C2D12',
-    image: '/src/assets/images/ikea_momo_mascot_1792155183359.jpg'
+    image: '/src/assets/images/flowmomo_character_1791790478962.jpg'
   }
 };
 

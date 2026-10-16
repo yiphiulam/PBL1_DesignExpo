@@ -25,7 +25,7 @@ interface SoundscapePlayerCardProps {
 export const SoundscapePlayerCard: React.FC<SoundscapePlayerCardProps> = ({ language }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMood, setCurrentMood] = useState<SoundscapeMood>('water_breeze');
-  const [volume, setVolume] = useState(0.65);
+  const [volume, setVolume] = useState(0.75);
   const [activeChimeIndex, setActiveChimeIndex] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -279,16 +279,31 @@ export const SoundscapePlayerCard: React.FC<SoundscapePlayerCardProps> = ({ lang
         </div>
       </div>
 
-      {/* Interactive Pentatonic Chime Bar (敲擊風鈴) */}
-      <div className="bg-pink-50/60 rounded-2xl p-4 border border-pink-200/80 space-y-2.5">
-        <div className="flex items-center justify-between">
+      {/* Interactive Pentatonic Chime Bar (敲擊風鈴 & 漣漪水滴) */}
+      <div className="bg-pink-50/60 rounded-2xl p-4 border border-pink-200/80 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
             <Music className="w-3.5 h-3.5 text-[#E4007F]" />
             <span>{language === 'en' ? 'Interactive Pentatonic Wind Chimes (Tap to play):' : '大會五聲音階水晶風鈴（點擊敲響演奏）：'}</span>
           </div>
-          <span className="text-[11px] text-stone-400 font-mono">
-            Pentatonic Scale
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => expoSoundscape.triggerWaterDroplet()}
+              className="px-2.5 py-1 rounded-lg bg-white hover:bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
+              title={language === 'en' ? 'Play water droplet ripple sound' : '播放千塘水滴漣漪聲'}
+            >
+              <Waves className="w-3 h-3 text-sky-500" />
+              <span>{language === 'en' ? '💧 Water Drop' : '💧 漣漪水滴'}</span>
+            </button>
+            <button
+              onClick={() => handleTriggerChime()}
+              className="px-2.5 py-1 rounded-lg bg-white hover:bg-pink-50 text-[#E4007F] border border-pink-200 text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
+              title={language === 'en' ? 'Play random crystal chime' : '隨機敲響水晶風鈴'}
+            >
+              <Sparkles className="w-3 h-3 text-[#E4007F]" />
+              <span>{language === 'en' ? '✨ Random Chime' : '✨ 隨機風鈴'}</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-7 gap-1.5">
